@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::fmt;
+use thiserror::Error;
 
 #[derive(Default)]
 pub struct SmartHouse {
@@ -13,19 +12,21 @@ struct Room {
     devices: HashSet<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum FindError {
-    RoomNotFound,
+    #[error("Thiserror: Room not found")]
+    RoomNotFound(#[from] NoRoom),
+    #[error("Thiserror: Device not found")]
     DeviceNotFound,
 }
 
-impl fmt::Display for FindError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "room or device not found")
-    }
-}
+#[derive(Debug, Error)]
+#[error("no room in house")]
+pub struct NoRoom {}
 
-impl Error for FindError {}
+#[derive(Debug, Error)]
+#[error("no device in room")]
+struct NoDevice {}
 
 pub trait DeviceInfoProvider {
     fn get_device_info(&self, room: &str, name: &str) -> String;
@@ -96,13 +97,8 @@ impl SmartHouse {
     /// assert_eq!(res.unwrap(), true);
     /// ```
     pub fn add_device(&mut self, room_name: &str, device: &str) -> Result<bool, FindError> {
-        let opt = self.rooms.remove(room_name);
-        let mut room = match opt {
-            Some(s) => s,
-            None => return Result::Err(FindError::RoomNotFound),
-        };
+        let room = self.get_room(room_name)?;
         room.devices.insert(device.to_string());
-        self.rooms.insert(room_name.to_string(), room);
         Result::Ok(true)
     }
 
@@ -116,17 +112,21 @@ impl SmartHouse {
     /// let res1 = house.remove_device("Room A", "Socket 1");
     /// ```
     pub fn remove_device(&mut self, room_name: &str, device: &str) -> Result<bool, FindError> {
-        let opt = self.rooms.get_mut(room_name);
-        let room = match opt {
-            Some(s) => s,
-            None => return Result::Err(FindError::RoomNotFound),
-        };
-        room.devices.insert(String::from("xxx"));  // попробовать 
+        let room = self.get_room(room_name)?;
+
         let ok = room.devices.remove(device);
         if ok {
-            Result::Ok(true)
+            Ok(true)
         } else {
-            Result::Err(FindError::DeviceNotFound)
+            Err(FindError::DeviceNotFound)
+        }
+    }
+
+    fn get_room(&mut self, room_name: &str) -> Result<&mut Room, NoRoom> {
+        let room = self.rooms.get_mut(room_name);
+        match room {
+            Some(r) => Ok(r),
+            None => Err(NoRoom {}),
         }
     }
 
@@ -144,9 +144,9 @@ impl SmartHouse {
             for dev_name in &self.rooms[room].devices {
                 devices.push(dev_name);
             }
-            Result::Ok(devices)
+            Ok(devices)
         } else {
-            Result::Err(FindError::RoomNotFound)
+            Err(NoRoom {})?
         }
     }
 
